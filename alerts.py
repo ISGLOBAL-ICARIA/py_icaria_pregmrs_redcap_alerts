@@ -4,8 +4,8 @@ import params
 
 def pregmrs_alert(project):
     """
-    :param project_key: Project ID
-    :return:
+    This script reads PregMRS status per participant, prepares the alarm for
+    each case, and saves it on REDCap specific 'fu_status' field.
     """
     print("\n[{}] Getting records from the PREG-MRS REDCap project:".format(datetime.now()))
 
@@ -14,9 +14,6 @@ def pregmrs_alert(project):
     postpartum_woman = df[df['pmrs_study_group']==2]
 
     df_records = postpartum_woman.index.get_level_values('record_id').difference(newborns.index.get_level_values('record_id'))
-    #print(df_records)
-    #print(postpartum_woman)
-
     ppw_res = postpartum_woman.reset_index()
     to_be_alert = ppw_res[ppw_res['record_id'].isin(df_records)][['record_id','study_number','pmrs_date']]
 
@@ -35,7 +32,6 @@ def pregmrs_alert(project):
         alerts3 = pd.DataFrame(columns=['record_id','study_number','pmrs_date'])
 
     all_records = df.index.get_level_values('record_id')
-    #print(all_records)
     completed_records = all_records.difference(alerts1['record_id'])
     completed_records = completed_records.difference(alerts2['record_id'])
     completed_records = completed_records.difference(alerts3['record_id'])
@@ -43,20 +39,19 @@ def pregmrs_alert(project):
     to_import_df = build_pregmrs_alert(df,completed_records,alerts1['record_id'].values,alerts2['record_id'].values,alerts3['record_id'].values)
     to_import_dict = [{'record_id': rec_id, 'fu_status': participant.fu_status}
                       for rec_id, participant in to_import_df.iterrows()]
-    #print(to_import_dict)
     response = project.import_records((to_import_dict))
     print("[PREG-MRS] Alerts setup: {}".format(response.get('count')))
 
 def build_pregmrs_alert(df, completed_records,alerts1, alerts2, alerts3):
+    """
+    This function prepares the alarm sentence that will be saved per case.
+    :return: It returns a list dataframe with all alarms
+    """
 
     dfres = df.reset_index()
     data_to_import = pd.DataFrame(columns=['fu_status'])
-
     for el in completed_records:
-        #print(el)
-        sn = dfres[(dfres['record_id']==el)&(dfres['redcap_event_name']=='pregmrs_arm_1')]['study_number'].values[0]
         ty = dfres[(dfres['record_id']==el)&(dfres['redcap_event_name']=='pregmrs_arm_1')]['pmrs_study_group'].values[0]
-        #print(sn,ty)
         type = params.type_dict[int(ty)]
 
         if type == 'PPM':
@@ -71,7 +66,6 @@ def build_pregmrs_alert(df, completed_records,alerts1, alerts2, alerts3):
         data_to_import.loc[el] = final_status
 
     for el in alerts1:
-        sn = dfres[(dfres['record_id']==el)&(dfres['redcap_event_name']=='pregmrs_arm_1')]['study_number'].values[0]
         ty = dfres[(dfres['record_id']==el)&(dfres['redcap_event_name']=='pregmrs_arm_1')]['pmrs_study_group'].values[0]
         type = params.type_dict[int(ty)]
 
@@ -84,7 +78,6 @@ def build_pregmrs_alert(df, completed_records,alerts1, alerts2, alerts3):
         data_to_import.loc[el] = final_status
 
     for el in alerts2:
-        sn = dfres[(dfres['record_id']==el)&(dfres['redcap_event_name']=='pregmrs_arm_1')]['study_number'].values[0]
         ty = dfres[(dfres['record_id']==el)&(dfres['redcap_event_name']=='pregmrs_arm_1')]['pmrs_study_group'].values[0]
         type = params.type_dict[int(ty)]
 
@@ -108,28 +101,35 @@ def build_pregmrs_alert(df, completed_records,alerts1, alerts2, alerts3):
             status = '???'
         final_status = str(type)+ " "+ status
         data_to_import.loc[el] = final_status
-    #print(data_to_import)
     return data_to_import
 
 
 def sn_cleaning(project, field_='study_number',event='pregmrs_arm_1'):
+    """
+    This function is used to clean study_number or other IDs.
+
+    :param field_: The specific field that must be cleaned
+    :param event: Event where the field_ variable is located
+    :return: corrections are directly made in REDCap
+    """
+
     df_all = project.export_records(format_type='df', fields=params.LOGIC_FIELDS)
     df = df_all.xs(event,level=1,drop_level=False)
-    #print(df[[field_]])
     data_to_import = pd.DataFrame(columns=[field_])
 
     for k,el in df[[field_]].T.items():
         if str(el[field_])[0] == '':
-            #print(el[0][1:])
             data_to_import.loc[k[0]] = el[0][1:]
-        #else:
-            #print(k[0],str(el[field_])+"!!!!!!!!!!!!!!!!!!!!")
     to_import_dict = [{'record_id': rec_id, field_: participant[field_]}
                       for rec_id, participant in data_to_import.iterrows()]
     response = project.import_records((to_import_dict))
     print("[PREG-MRS] "+field_ +" CORRECTIONS: {}".format(response.get('count')))
 
 def duplicates(project):
+    """
+    To find duplicate entries in the PregMRS project
+    """
+
     df_all = project.export_records(format_type='df', fields=params.LOGIC_FIELDS)
     df = df_all.xs('pregmrs_arm_1',level=1,drop_level=False)
 
@@ -138,7 +138,7 @@ def duplicates(project):
     for k,el in repeated.T.items():
         if el[0] != 1:
             s+= 1
-            #print(k,el[0])
+            print(k,el[0])
 
     if s == 0:
         print("END: There is no repeated participant to clean.")
